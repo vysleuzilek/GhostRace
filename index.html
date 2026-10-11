@@ -56,6 +56,9 @@
     <button class="iconbtn" id="newBack" aria-label="Zpět"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
     <div class="hint" id="newHint">Ťukni na mapu na START.</div>
   </div>
+  <div class="sheet" id="newHere">
+    <button class="btn" id="newHereBtn">Start tam, kde stojím</button>
+  </div>
   <div class="sheet" id="newSheet" hidden>
     <label for="routeName" class="lbl">Název trasy</label>
     <input id="routeName" class="field" maxlength="40" placeholder="Zámecká → Převýšov">
@@ -71,6 +74,15 @@
   <div class="head">
     <button class="iconbtn" id="detBack" aria-label="Zpět"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
     <div><h1 id="detName"></h1><div class="lbl" id="detMeta"></div></div>
+  </div>
+  <div class="row" id="detTools">
+    <button class="btn ghost small" id="detRename">Přejmenovat</button>
+    <button class="btn ghost small" id="detDelete">Smazat trasu</button>
+  </div>
+  <div class="row" id="detRenameRow" hidden>
+    <label for="detRenameInput" class="sr" style="position:absolute;left:-9999px">Nový název</label>
+    <input id="detRenameInput" class="field" maxlength="40">
+    <button class="btn small" id="detRenameSave" style="flex:none;width:110px">Uložit</button>
   </div>
   <svg class="preview" id="detPreview" viewBox="0 0 360 150" role="img" aria-label="Tvar trasy"></svg>
   <div style="display:flex;flex-direction:column;gap:8px">
