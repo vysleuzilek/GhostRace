@@ -18,6 +18,7 @@
 </head>
 <body>
 <div id="map"></div>
+<div id="topshade"></div>
 
 <!-- jméno -->
 <section id="scr-name" class="panel" hidden>
@@ -132,12 +133,24 @@
   </div>
   <div style="display:flex;flex-direction:column;gap:8px">
     <div class="eyebrow">Sektory</div>
-    <svg class="secmap" id="runMap" viewBox="0 0 350 190" role="img" aria-label="Trasa obarvená podle sektorů"></svg>
+    <div class="mapwrap">
+      <svg class="secmap" id="runMap" viewBox="0 0 350 190" role="img" aria-label="Trasa obarvená podle sektorů"></svg>
+      <button class="expand" id="runMapBig"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>Zvětšit</button>
+    </div>
     <div class="chips" id="runSecs"></div>
   </div>
   <div class="spacer"></div>
   <button class="btn" id="runRace">Jet proti téhle jízdě</button>
   <button class="btn ghost small" id="runDelete">Smazat jízdu</button>
+</section>
+
+<!-- velká mapa sektorů -->
+<section id="scr-smap" class="ui" hidden>
+  <div class="newtop">
+    <button class="iconbtn" id="smapBack" aria-label="Zpět"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <div class="hint"><b id="smapTitle" style="font-weight:600"></b><div class="lbl" id="smapSub"></div></div>
+  </div>
+  <div class="sheet"><div class="chips" id="smapSecs"></div></div>
 </section>
 
 <!-- závod -->
@@ -179,7 +192,10 @@
     <div class="lbl" style="font-size:14px" id="resSub"></div>
   </div>
   <div class="stable" id="resTable"></div>
-  <svg class="secmap" id="resMap" viewBox="0 0 350 190" role="img" aria-label="Trasa obarvená podle sektorů"></svg>
+  <div class="mapwrap">
+    <svg class="secmap" id="resMap" viewBox="0 0 350 190" role="img" aria-label="Trasa obarvená podle sektorů"></svg>
+    <button class="expand" id="resMapBig"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>Zvětšit</button>
+  </div>
   <div class="card2 sparkcard" id="resSparkCard"><span class="lbl" style="width:56px">Průběh delty</span><svg id="resSpark" viewBox="0 0 270 54" width="100%" height="54" aria-hidden="true"></svg></div>
   <div class="spacer"></div>
   <button class="btn" id="resSave">Uložit jízdu</button>
