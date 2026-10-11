@@ -58,9 +58,18 @@ function prep(r) {
   const cum = [0];
   for (let i = 1; i < r.coords.length; i++) cum.push(cum[i - 1] + hav(r.coords[i - 1], r.coords[i]));
   r.cum = cum; r.length = cum[cum.length - 1];
-  r.sect = [r.length / 3, 2 * r.length / 3, r.length];
+  r.sect = sectBounds(r);
   r._prep = true; return r;
 }
+// konce sektorů v metrech od startu (poslední = cíl); bez vlastního nastavení 3 stejné díly
+function sectBounds(r) {
+  const L = r.length;
+  const sb = Array.isArray(r.sb) && r.sb.length ? r.sb.filter(d => d > 0 && d < L).sort((a, b) => a - b) : [L / 3, 2 * L / 3];
+  return [...sb, L];
+}
+const MAX_SECT = 6;
+const SECT_NAMES = ['jedna', 'dva', 'tři', 'čtyři', 'pět', 'šest'];
+const sectWord = n => n >= 2 && n <= 4 ? 'sektory' : 'sektorů';
 function segAt(r, d) {
   let lo = 0, hi = r.cum.length - 1;
   if (d <= 0) return 0; if (d >= r.length) return hi - 1;
@@ -101,9 +110,14 @@ function startSide(r, p) {
 /* ---------- ghost a jízdy ---------- */
 function runTD(run) { const ts = [], ds = []; for (let i = 0; i < run.s.length; i += 2) { ts.push(run.s[i]); ds.push(run.s[i + 1]); } return { ts, ds }; }
 function ghostFrom(run, label) { const { ts, ds } = runTD(run); return { ts, ds, total: run.total, name: label || run.driver }; }
+// časy sektorů se počítají ze záznamu jízdy, takže sedí i po změně sektorů
+function computeSectors(run, r) {
+  const { ts, ds } = runTD(run); let prev = 0;
+  return r.sect.map(b => { const t = b >= r.length - 0.01 ? run.total : interp(ds, ts, b); const st = t - prev; prev = t; return st; });
+}
 function idealGhost(runs, r) {
   const ts = [0], ds = [0]; let off = 0;
-  for (let k = 0; k < 3; k++) {
+  for (let k = 0; k < r.sect.length; k++) {
     const run = runs.reduce((b, x) => x.sectors[k] < b.sectors[k] ? x : b);
     const g = ghostFrom(run);
     const b0 = k ? r.sect[k - 1] : 0, b1 = r.sect[k];
@@ -116,7 +130,7 @@ function idealGhost(runs, r) {
 }
 const gDist = (g, t) => interp(g.ts, g.ds, t);
 const gTime = (g, d) => interp(g.ds, g.ts, d);
-function ghostSectors(g, r) { const a = gTime(g, r.sect[0]), b = gTime(g, r.sect[1]); return [a, b - a, g.total - b]; }
+function ghostSectors(g, r) { let prev = 0; return r.sect.map(b => { const t = b >= r.length - 0.01 ? g.total : gTime(g, b); const s = t - prev; prev = t; return s; }); }
 // rychlost v km/h u každého bodu jízdy (nové jízdy ji mají uloženou, starým se dopočítá)
 function runSpeeds(run) {
   const { ts, ds } = runTD(run);
@@ -181,8 +195,8 @@ const App = { me: '', routes: [], runs: [], cur: null, mode: 'stand', tab: 'boar
 function getName() { try { return localStorage.getItem('gr_name') || ''; } catch (e) { return ''; } }
 function setName(n) { try { localStorage.setItem('gr_name', n); } catch (e) { } }
 
-const SCREENS = ['name', 'home', 'rmap', 'new', 'detail', 'run', 'smap', 'race', 'result'];
-const MAP_SCREENS = ['new', 'race', 'rmap', 'smap'];
+const SCREENS = ['name', 'home', 'rmap', 'new', 'detail', 'run', 'smap', 'sedit', 'race', 'result'];
+const MAP_SCREENS = ['new', 'race', 'rmap', 'smap', 'sedit'];
 function show(name) {
   SCREENS.forEach(s => { $('#scr-' + s).hidden = s !== name; });
   $('#map').style.visibility = MAP_SCREENS.includes(name) ? 'visible' : 'hidden';
@@ -191,16 +205,18 @@ function show(name) {
     ['all-dim', 'all-line', 'all-sel', 'all-hit'].forEach(id => map.setLayoutProperty(id, 'visibility', vis(name === 'rmap')));
     ['route-casing', 'route-line'].forEach(id => map.setLayoutProperty(id, 'visibility', vis(name !== 'rmap' && name !== 'smap')));
     ['sec-casing', 'sec-line'].forEach(id => map.setLayoutProperty(id, 'visibility', vis(name === 'smap')));
+    ['secdiv-casing', 'secdiv-line'].forEach(id => map.setLayoutProperty(id, 'visibility', vis(name === 'smap' || name === 'sedit')));
   }
   if (name !== 'smap') { secMarkers.forEach(m => m.remove()); secMarkers = []; }
+  if (name !== 'smap' && name !== 'sedit') { divMarkers.forEach(m => m.remove()); divMarkers = []; }
   if (map) setTimeout(() => map.resize(), 30);
   const sc = $('#scr-' + name); if (sc && sc.classList.contains('panel')) sc.scrollTop = 0;
 }
 
 const modeOf = x => x.start || 'stand';
-function runsOf(routeId, mode) { return App.runs.filter(x => x.routeId === routeId && x.sectors && x.sectors.length === 3 && (!mode || modeOf(x) === mode)); }
+function runsOf(routeId, mode) { return App.runs.filter(x => x.routeId === routeId && x.sectors && x.sectors.length && (!mode || modeOf(x) === mode)); }
 function bestOf(runs) { return runs.length ? runs.reduce((b, x) => x.total < b.total ? x : b) : null; }
-function sectorBests(runs) { return [0, 1, 2].map(k => runs.length ? Math.min(...runs.map(x => x.sectors[k])) : Infinity); }
+function sectorBests(runs, n) { return Array.from({ length: n }, (_, k) => { const v = runs.map(x => x.sectors[k]).filter(s => s != null); return v.length ? Math.min(...v) : Infinity; }); }
 const mine = runs => runs.filter(x => x.driver === App.me);
 // barva sektoru: fialová = nejlepší ze všech, zelená = osobní rekord, žlutá = pomalejší
 function secCls(st, k, myPB, allBest, inclusive) {
@@ -228,6 +244,9 @@ function initMap() {
     map.addSource('sec', { type: 'geojson', data: EMPTY });
     map.addLayer({ id: 'sec-casing', type: 'line', source: 'sec', layout: lay, paint: { 'line-color': '#0E1013', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 7, 18, 20] } });
     map.addLayer({ id: 'sec-line', type: 'line', source: 'sec', layout: lay, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 4, 18, 13] } });
+    map.addSource('secdiv', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'secdiv-casing', type: 'line', source: 'secdiv', layout: { 'line-cap': 'butt', visibility: 'none' }, paint: { 'line-color': '#0E1013', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 6, 18, 14] } });
+    map.addLayer({ id: 'secdiv-line', type: 'line', source: 'secdiv', layout: { 'line-cap': 'butt', visibility: 'none' }, paint: { 'line-color': '#F2F1EC', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 18, 7], 'line-dasharray': [1, 1] } });
     map.on('click', 'all-hit', e => { if (!$('#scr-rmap').hidden && e.features && e.features[0]) selectRoute(e.features[0].properties.id); });
     map.on('mouseenter', 'all-hit', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'all-hit', () => { map.getCanvas().style.cursor = ''; });
@@ -295,10 +314,10 @@ function routeSvg(r, w, h) {
 // trasa obarvená podle sektorů + štítky s časy
 function sectorMapSvg(r, w, h, secs, classes) {
   const pts = routeProj(r, w, h, 34);
-  const parts = [[], [], []];
+  const parts = r.sect.map(() => []);
   pts.forEach((p, i) => {
     const d = r.cum[i];
-    const k = d < r.sect[0] ? 0 : d < r.sect[1] ? 1 : 2;
+    let k = r.sect.findIndex(b => d < b); if (k < 0) k = r.sect.length - 1;
     parts[k].push(p);
     if (k > 0 && parts[k].length === 1 && parts[k - 1].length) parts[k - 1].push(p);
   });
@@ -321,7 +340,12 @@ async function loadData() {
   try { [App.routes, App.runs] = await Promise.all([Store.routes(), Store.runs()]); }
   catch (e) { console.warn(e); App.loadErr = true; }
   App.routes.forEach(prep);
-  App.runs.forEach(x => { if (x.driver && x.driver.endsWith(' (test)')) { x.driver = x.driver.slice(0, -7); x.sim = true; } });
+  const byId = {}; App.routes.forEach(r => { byId[r.id] = r; });
+  App.runs.forEach(x => {
+    if (x.driver && x.driver.endsWith(' (test)')) { x.driver = x.driver.slice(0, -7); x.sim = true; }
+    const r = byId[x.routeId];
+    if (r && x.s && x.s.length >= 4) x.sectors = computeSectors(x, r);
+  });
   const last = id => Math.max(0, ...App.runs.filter(x => x.routeId === id).map(x => x.date || 0));
   App.routes.sort((a, b) => (last(b.id) || b.createdAt || 0) - (last(a.id) || a.createdAt || 0));
 }
@@ -408,6 +432,7 @@ function startHere() {
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 async function onMapClick(e) {
+  if (!$('#scr-sedit').hidden) { sectorEditClick([e.lngLat.lng, e.lngLat.lat]); return; }
   if ($('#scr-new').hidden || NR.busy || NR.step === 0) return;
   const p = [e.lngLat.lng, e.lngLat.lat];
   if (NR.step === 1) { setStart(p); return; }
@@ -449,7 +474,11 @@ function openDetail(id) {
   const r = App.routes.find(x => x.id === id); if (!r) return goHome();
   App.cur = r; prep(r);
   $('#detName').textContent = r.name;
-  $('#detMeta').textContent = `${km(r.length)} km · 3 sektory${r.createdBy ? ' · vytvořil ' + r.createdBy : ''}`;
+  $('#detMeta').textContent = `${km(r.length)} km · ${r.sect.length} ${sectWord(r.sect.length)}${r.createdBy ? ' · vytvořil ' + r.createdBy : ''}`;
+  const canEdit = !r.createdBy || r.createdBy === App.me;
+  $('#detSectors').disabled = false;
+  $('#detSectors').textContent = canEdit ? 'Upravit sektory' : `Sektory upravuje ${r.createdBy}`;
+  $('#detSectors').classList.toggle('muted', !canEdit);
   $('#detPreview').innerHTML = routeSvg(r, 360, 150);
   $('#detRenameRow').hidden = true; $('#detTools').hidden = false;
   $('#detDelete').textContent = 'Smazat trasu'; delArmed = false;
@@ -460,7 +489,8 @@ function renderDetailBody() {
   const r = App.cur, mode = App.mode, runs = runsOf(r.id, mode);
   document.querySelectorAll('#detMode button').forEach(b => b.classList.toggle('on', b.dataset.v === mode));
   document.querySelectorAll('#detTab button').forEach(b => b.classList.toggle('on', b.dataset.v === App.tab));
-  const sb = sectorBests(runs), myPB = sectorBests(mine(runs));
+  const N = r.sect.length;
+  const sb = sectorBests(runs, N), myPB = sectorBests(mine(runs), N);
   const board = $('#detBoard'), hist = $('#detHistory');
   board.hidden = App.tab !== 'board'; hist.hidden = App.tab !== 'history';
 
@@ -469,8 +499,12 @@ function renderDetailBody() {
     runs.forEach(x => { if (!byDriver[x.driver] || x.total < byDriver[x.driver].total) byDriver[x.driver] = x; });
     const rows = Object.values(byDriver).sort((a, b) => a.total - b.total);
     if (!rows.length) board.innerHTML = `<div class="empty">${MODES[mode]}: na trase ještě nikdo nejel. První jízda nastaví ghosta.</div>`;
-    else board.innerHTML = `<div class="brow headrow"><span></span><span>Jezdec</span><span class="c">S1</span><span class="c">S2</span><span class="c">S3</span><span style="text-align:right">Čas</span></div>` +
-      rows.map((x, i) => `<button class="brow${x.driver === App.me ? ' me' : ''}" data-run="${esc(x.id)}"><span style="text-align:center;font-weight:600">${i + 1}</span><span class="n">${esc(x.driver)}${x.sim ? ' <span class="lbl">test</span>' : ''}</span>${x.sectors.map((s, k) => `<span class="c${s <= sb[k] + 1e-6 ? ' purple' : ''}">${fmt(s)}</span>`).join('')}<span class="t">${fmt(x.total)}</span></button>`).join('');
+    else if (N <= 3) { const cols = `22px minmax(0,1fr) repeat(${N},56px) 66px`; board.innerHTML = `<div class="brow headrow" style="grid-template-columns:${cols}"><span></span><span>Jezdec</span>${r.sect.map((_, k) => `<span class="c">S${k + 1}</span>`).join('')}<span style="text-align:right">Čas</span></div>` +
+      rows.map((x, i) => `<button class="brow${x.driver === App.me ? ' me' : ''}" style="grid-template-columns:${cols}" data-run="${esc(x.id)}"><span style="text-align:center;font-weight:600">${i + 1}</span><span class="n">${esc(x.driver)}${x.sim ? ' <span class="lbl">test</span>' : ''}</span>${x.sectors.map((s, k) => `<span class="c${s <= sb[k] + 1e-6 ? ' purple' : ''}">${fmt(s)}</span>`).join('')}<span class="t">${fmt(x.total)}</span></button>`).join(''); }
+    else board.innerHTML = rows.map((x, i) => `<button class="brow2${x.driver === App.me ? ' me' : ''}" data-run="${esc(x.id)}">
+        <span class="top"><b>${i + 1}</b><span class="n">${esc(x.driver)}${x.sim ? ' <span class="lbl">test</span>' : ''}</span><span class="t">${fmt(x.total)}</span></span>
+        <span class="mini">${x.sectors.map((s, k) => `<i class="${s <= sb[k] + 1e-6 ? 'purple' : 'plain'}">S${k + 1} ${fmt(s)}</i>`).join('')}</span>
+      </button>`).join('');
   } else {
     const list = mine(runs).sort((a, b) => (b.date || 0) - (a.date || 0));
     const pb = bestOf(list);
@@ -530,7 +564,8 @@ function openRun(run, from) {
   const mode = modeOf(run), runs = runsOf(r.id, mode);
   const others = runs.some(x => x.id === run.id) ? runs : runs.concat([run]);
   const myRuns = mine(others), pb = bestOf(myRuns);
-  const sb = sectorBests(others), myPB = sectorBests(myRuns);
+  const N = r.sect.length;
+  const sb = sectorBests(others, N), myPB = sectorBests(myRuns, N);
   $('#runTitle').textContent = (pb && pb.id === run.id ? 'Můj rekord · ' : '') + fmt(run.total);
   $('#runSub').textContent = `${dateStr(run.date || Date.now())} · ${r.name}${run.sim ? ' · test' : ''}`;
 
@@ -571,6 +606,7 @@ function openRun(run, from) {
   const classes = run.sectors.map((s, k) => secCls(s, k, myPB, sb, true));
   $('#runMap').innerHTML = sectorMapSvg(r, 350, 190, run.sectors, classes);
   $('#runMapBig').onclick = () => openSectorMap(run, r, classes, 'run');
+  $('#runSecs').style.gridTemplateColumns = `repeat(${Math.min(N, 3)}, minmax(0, 1fr))`;
   $('#runSecs').innerHTML = run.sectors.map((s, k) => `<div class="chip ${classes[k]}"><div class="lbl">S${k + 1}</div><div class="num">${fmt(s)}</div></div>`).join('');
   const saved = App.runs.some(x => x.id === run.id);
   $('#runDelete').hidden = !saved || run.driver !== App.me;
@@ -606,14 +642,15 @@ async function openSectorMap(run, r, classes, from) {
   $('#smapSecs').innerHTML = run.sectors.map((s, k) => `<div class="chip ${classes[k]}"><div class="lbl">S${k + 1}</div><div class="num">${fmt(s)}</div></div>`).join('');
   show('smap'); await initMap(); show('smap');
   setRouteOnMap(null); clearRaceMarkers();
-  const feats = [0, 1, 2].map(k => {
-    const b0 = k ? r.sect[k - 1] : 0, b1 = r.sect[k];
+  const feats = r.sect.map((b1, k) => {
+    const b0 = k ? r.sect[k - 1] : 0;
     const cs = [pointAt(r, b0)];
     r.coords.forEach((c, i) => { if (r.cum[i] > b0 && r.cum[i] < b1) cs.push(c); });
     cs.push(pointAt(r, b1));
     return { type: 'Feature', properties: { color: COL[classes[k]] }, geometry: { type: 'LineString', coordinates: cs } };
   });
   map.getSource('sec').setData({ type: 'FeatureCollection', features: feats });
+  setDividers(r, r.sect.slice(0, -1));
   [[r.coords[0], 'pin'], [r.coords[r.coords.length - 1], 'pin finish']].forEach(([c, cls]) => {
     const el = document.createElement('div'); el.className = cls;
     secMarkers.push(new maplibregl.Marker({ element: el }).setLngLat(c).addTo(map));
@@ -626,6 +663,64 @@ async function openSectorMap(run, r, classes, from) {
   map.fitBounds(boundsOf(r.coords), { padding: { top: 110, bottom: 140, left: 40, right: 40 }, pitch: 0, bearing: 0, duration: 0 });
 }
 function smapBack() { show(smapFrom === 'result' ? 'result' : 'run'); }
+// příčné čáry na hranicích sektorů (délka ~70 m, aby byly vidět i při oddálení) + štítky
+let divMarkers = [];
+function setDividers(r, bounds) {
+  divMarkers.forEach(m => m.remove()); divMarkers = [];
+  const divs = bounds.map(d => {
+    const p = pointAt(r, d), h = headingAt(r, d);
+    return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [moveBy(p, h + 90, 35), moveBy(p, h - 90, 35)] } };
+  });
+  map.getSource('secdiv').setData({ type: 'FeatureCollection', features: divs });
+  bounds.forEach((d, k) => {
+    const el = document.createElement('div'); el.className = 'divlbl'; el.textContent = `S${k + 1} | S${k + 2}`;
+    divMarkers.push(new maplibregl.Marker({ element: el, anchor: 'top', offset: [0, 12] }).setLngLat(pointAt(r, d)).addTo(map));
+  });
+}
+
+/* ================= ÚPRAVA SEKTORŮ ================= */
+const SE = { r: null, b: [] };
+async function openSectorEdit() {
+  const r = App.cur;
+  if (r.createdBy && r.createdBy !== App.me) return;
+  SE.r = r; SE.b = r.sect.slice(0, -1);
+  show('sedit'); await initMap(); show('sedit');
+  setRouteOnMap(r.coords); clearRaceMarkers();
+  map.fitBounds(boundsOf(r.coords), { padding: { top: 110, bottom: 240, left: 40, right: 40 }, pitch: 0, bearing: 0, duration: 0 });
+  renderSectorEdit('Ťukni na trasu, kde má končit sektor. Ťuknutím na čáru ji smažeš.');
+}
+function renderSectorEdit(hint) {
+  const r = SE.r, ends = [...SE.b, r.length];
+  setDividers(r, SE.b);
+  if (hint) $('#seHint').textContent = hint;
+  $('#seList').innerHTML = ends.map((e, k) => `<span class="sepill">S${k + 1} · ${km(e - (k ? ends[k - 1] : 0))} km</span>`).join('');
+  document.querySelectorAll('#seCount button').forEach(b => b.classList.toggle('on', +b.dataset.n === ends.length));
+}
+function sectorEditClick(p) {
+  const r = SE.r, pr = project(r, p, null);
+  if (pr.off > 80) { $('#seHint').textContent = 'Ťukni blíž k modré trase.'; return; }
+  const near = SE.b.findIndex(d => Math.abs(d - pr.d) < Math.max(60, r.length * 0.02));
+  if (near >= 0) { SE.b.splice(near, 1); renderSectorEdit('Hranice smazaná.'); return; }
+  if (SE.b.length >= MAX_SECT - 1) { $('#seHint').textContent = `Víc než ${MAX_SECT} sektorů nejde. Nejdřív nějakou čáru smaž.`; return; }
+  const all = [0, ...SE.b, r.length];
+  if (all.some(d => Math.abs(d - pr.d) < 100)) { $('#seHint').textContent = 'Sektor musí mít aspoň 100 m.'; return; }
+  SE.b.push(pr.d); SE.b.sort((a, b) => a - b);
+  renderSectorEdit(`Hranice přidaná na ${km(pr.d)} km.`);
+}
+function sectorEditEven(n) {
+  const L = SE.r.length; SE.b = Array.from({ length: n - 1 }, (_, i) => L * (i + 1) / n);
+  renderSectorEdit(`${n} stejně dlouhé ${sectWord(n)}. Čáry můžeš dál mazat a přidávat.`);
+}
+async function sectorEditSave() {
+  const r = SE.r, sb = SE.b.map(d => +d.toFixed(1));
+  $('#seSave').textContent = 'Ukládám…';
+  try { await Store.update('routes', 'gr_routes', r.id, { sb }); }
+  catch (e) { $('#seSave').textContent = 'Uložení selhalo, zkus znovu'; return; }
+  $('#seSave').textContent = 'Uložit sektory';
+  r.sb = sb; r.sect = sectBounds(r);
+  App.runs.forEach(x => { if (x.routeId === r.id && x.s && x.s.length >= 4) x.sectors = computeSectors(x, r); });
+  openDetail(r.id);
+}
 
 /* ================= ZÁVOD ================= */
 let RS = null;
@@ -642,7 +737,7 @@ async function startRace(opts) {
     cmp: ghost || (myBest ? ghostFrom(myBest, 'Můj rekord') : null),
     fix: null, idx: null, disp: 0, camH: headingAt(r, 0), lastFrame: performance.now(),
     samples: [], speeds: [], sectors: [], sec: 0, split: 0, t0: 0, prevS: null, prevT: 0,
-    myPB: sectorBests(mine(runs)), allBest: sectorBests(runs),
+    myPB: sectorBests(mine(runs), r.sect.length), allBest: sectorBests(runs, r.sect.length),
     myBestTotal: myBest ? myBest.total : null, allBestTotal: (bestOf(runs) || {}).total,
     gps: null, simTimer: null, simD: mode === 'fly' ? -250 : 0, simTempo: 0.95 + Math.random() * 0.1, stopArmed: false
   };
@@ -650,7 +745,9 @@ async function startRace(opts) {
   setRouteOnMap(r.coords); clearRaceMarkers();
   carMk = arrowMarker('#E5484D', 1).setLngLat(r.coords[0]).addTo(map);
   if (ghost) ghostMk = arrowMarker('#6FB6FF', 0.6).setLngLat(r.coords[0]).addTo(map);
-  for (let i = 0; i < 3; i++) { const e = $('#rs' + i); e.className = 'sec'; e.querySelector('.num').textContent = '–'; }
+  const N = r.sect.length;
+  $('#rSecs').style.gridTemplateColumns = `repeat(${N <= 4 ? N : Math.ceil(N / 2)}, minmax(0, 1fr))`;
+  $('#rSecs').innerHTML = r.sect.map((_, i) => `<div class="sec" id="rs${i}"><div class="lbl">S${i + 1}</div><div class="num">–</div></div>`).join('');
   $('#rTime').textContent = fmt(0); $('#rDeltaVal').textContent = '–'; $('#rDelta').className = '';
   $('#rDeltaLbl').textContent = ghost ? ghost.name : 'bez ghosta';
   $('#rVoice').hidden = true; $('#rGap').hidden = true; $('#rCount').hidden = true;
@@ -750,7 +847,7 @@ function onFix(p, speed, acc) {
   const rt = (t - RS.t0) / 1000;
   const last = RS.samples[RS.samples.length - 1];
   if (d > last[1] + 0.5) {
-    while (RS.sec < 3 && d >= r.sect[RS.sec]) {
+    while (RS.sec < r.sect.length && d >= r.sect[RS.sec]) {
       const b = r.sect[RS.sec];
       const tc = last[0] + (b - last[1]) / (d - last[1]) * (rt - last[0]);
       sectorDone(tc);
@@ -765,9 +862,8 @@ function sectorDone(tc) {
   RS.split = tc; RS.sectors.push(st); RS.sec++;
   const cls = secCls(st, k, RS.myPB, RS.allBest, false);
   const e = $('#rs' + k); e.className = 'sec ' + cls; e.querySelector('.num').textContent = fmt(st);
-  const names = ['jedna', 'dva', 'tři'];
   const msg = { purple: 'fialová', green: 'zelená', yellow: 'žlutá, plus ' + cz(st - RS.myPB[k]) };
-  if (RS.sec < 3) say('Sektor ' + names[k] + '. ' + msg[cls]);
+  if (RS.sec < RS.route.sect.length) say('Sektor ' + SECT_NAMES[k] + '. ' + msg[cls]);
   else { RS.phase = 'done'; RS.total = tc; }
 }
 
@@ -805,7 +901,7 @@ function frame(now) {
   if (RS.phase === 'race') {
     $('#rTime').textContent = fmt(rt);
     $('#rLeft').textContent = km(Math.max(0, r.length - RS.disp));
-    for (let i = 0; i < 3; i++) $('#rs' + i).classList.toggle('on', i === RS.sec);
+    for (let i = 0; i < r.sect.length; i++) $('#rs' + i).classList.toggle('on', i === RS.sec);
   }
 
   RS.camH = (RS.camH + angDiff(RS.camH, carH) * Math.min(1, dtReal * 2.5) + 360) % 360;
@@ -846,7 +942,7 @@ function saveDraft(total) {
   stopGPS();
   const r = RS.route;
   RS.run = {
-    id: uid(), routeId: r.id, driver: App.me, total, sectors: RS.sectors.slice(0, 3),
+    id: uid(), routeId: r.id, driver: App.me, total, sectors: RS.sectors.slice(),
     s: RS.samples.flatMap(([t, d]) => [+t.toFixed(2), +d.toFixed(1)]), v: RS.speeds.slice(0, RS.samples.length),
     date: Date.now(), sim: RS.sim, start: RS.mode,
     vs: RS.cmp ? { name: RS.cmp.name, total: +RS.cmp.total.toFixed(2) } : null
@@ -931,6 +1027,10 @@ document.querySelectorAll('#detTab button').forEach(b => b.onclick = () => { App
 $('#detStart').onclick = () => startRace();
 $('#runBack').onclick = runBack;
 $('#smapBack').onclick = smapBack;
+$('#detSectors').onclick = () => { if (!App.cur.createdBy || App.cur.createdBy === App.me) openSectorEdit(); };
+$('#seBack').onclick = () => openDetail(SE.r.id);
+$('#seSave').onclick = sectorEditSave;
+document.querySelectorAll('#seCount button').forEach(b => b.onclick = () => sectorEditEven(+b.dataset.n));
 $('#runRace').onclick = raceThisRun;
 $('#runDelete').onclick = deleteRun;
 $('#rGo').onclick = go;
