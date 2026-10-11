@@ -1,0 +1,14 @@
+{
+  "name": "Ghost Race",
+  "short_name": "Ghost Race",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0E1013",
+  "theme_color": "#0E1013",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
