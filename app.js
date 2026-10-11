@@ -181,16 +181,18 @@ const App = { me: '', routes: [], runs: [], cur: null, mode: 'stand', tab: 'boar
 function getName() { try { return localStorage.getItem('gr_name') || ''; } catch (e) { return ''; } }
 function setName(n) { try { localStorage.setItem('gr_name', n); } catch (e) { } }
 
-const SCREENS = ['name', 'home', 'rmap', 'new', 'detail', 'run', 'race', 'result'];
-const MAP_SCREENS = ['new', 'race', 'rmap'];
+const SCREENS = ['name', 'home', 'rmap', 'new', 'detail', 'run', 'smap', 'race', 'result'];
+const MAP_SCREENS = ['new', 'race', 'rmap', 'smap'];
 function show(name) {
   SCREENS.forEach(s => { $('#scr-' + s).hidden = s !== name; });
   $('#map').style.visibility = MAP_SCREENS.includes(name) ? 'visible' : 'hidden';
   if (map && map.getLayer && map.getLayer('all-line')) {
-    const vis = name === 'rmap' ? 'visible' : 'none';
-    ['all-dim', 'all-line', 'all-sel', 'all-hit'].forEach(id => map.setLayoutProperty(id, 'visibility', vis));
-    ['route-casing', 'route-line'].forEach(id => map.setLayoutProperty(id, 'visibility', name === 'rmap' ? 'none' : 'visible'));
+    const vis = on => on ? 'visible' : 'none';
+    ['all-dim', 'all-line', 'all-sel', 'all-hit'].forEach(id => map.setLayoutProperty(id, 'visibility', vis(name === 'rmap')));
+    ['route-casing', 'route-line'].forEach(id => map.setLayoutProperty(id, 'visibility', vis(name !== 'rmap' && name !== 'smap')));
+    ['sec-casing', 'sec-line'].forEach(id => map.setLayoutProperty(id, 'visibility', vis(name === 'smap')));
   }
+  if (name !== 'smap') { secMarkers.forEach(m => m.remove()); secMarkers = []; }
   if (map) setTimeout(() => map.resize(), 30);
   const sc = $('#scr-' + name); if (sc && sc.classList.contains('panel')) sc.scrollTop = 0;
 }
@@ -208,7 +210,7 @@ function secCls(st, k, myPB, allBest, inclusive) {
 }
 
 /* ---------- mapa ---------- */
-let map = null, mapReady = null, pins = [], carMk = null, ghostMk = null;
+let map = null, mapReady = null, pins = [], carMk = null, ghostMk = null, secMarkers = [];
 const EMPTY = { type: 'FeatureCollection', features: [] };
 function initMap() {
   if (mapReady) return mapReady;
@@ -223,6 +225,9 @@ function initMap() {
     map.addLayer({ id: 'all-line', type: 'line', source: 'all', filter: ['>', ['get', 'n'], 0], layout: lay, paint: { 'line-color': '#6FB6FF', 'line-width': ['interpolate', ['linear'], ['get', 'n'], 1, 5, 10, 9], 'line-opacity': 0.95 } });
     map.addLayer({ id: 'all-sel', type: 'line', source: 'all', filter: ['==', ['get', 'id'], ''], layout: lay, paint: { 'line-color': '#8E4CFF', 'line-width': 9 } });
     map.addLayer({ id: 'all-hit', type: 'line', source: 'all', layout: lay, paint: { 'line-color': '#000', 'line-width': 26, 'line-opacity': 0.01 } });
+    map.addSource('sec', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'sec-casing', type: 'line', source: 'sec', layout: lay, paint: { 'line-color': '#0E1013', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 7, 18, 20] } });
+    map.addLayer({ id: 'sec-line', type: 'line', source: 'sec', layout: lay, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 4, 18, 13] } });
     map.on('click', 'all-hit', e => { if (!$('#scr-rmap').hidden && e.features && e.features[0]) selectRoute(e.features[0].properties.id); });
     map.on('mouseenter', 'all-hit', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'all-hit', () => { map.getCanvas().style.cursor = ''; });
@@ -527,7 +532,7 @@ function openRun(run, from) {
   const myRuns = mine(others), pb = bestOf(myRuns);
   const sb = sectorBests(others), myPB = sectorBests(myRuns);
   $('#runTitle').textContent = (pb && pb.id === run.id ? 'Můj rekord · ' : '') + fmt(run.total);
-  $('#runSub').textContent = `${dateStr(run.date || Date.now())} · ${r.name} · ${MODES[mode]}${run.sim ? ' · test' : ''}`;
+  $('#runSub').textContent = `${dateStr(run.date || Date.now())} · ${r.name}${run.sim ? ' · test' : ''}`;
 
   const { ds, v } = runSpeeds(run);
   const avg = r.length / run.total * 3.6;
@@ -537,9 +542,15 @@ function openRun(run, from) {
     if (d > 150 && d < r.length - 80 && (iMin < 0 || v[i] < v[iMin])) iMin = i;
   });
   const tile = (l, val, unit, sub, color) => `<div class="tile"><div class="lbl">${l}</div><div class="num"${color ? ` style="color:${color}"` : ''}>${val}${unit ? ` <small>${unit}</small>` : ''}</div>${sub ? `<div class="lbl">${sub}</div>` : ''}</div>`;
+  // porovnání s rekordem: u rekordní jízdy proti předchozímu rekordu, jinak proti aktuálnímu
   let vsTile;
-  if (run.vs && run.vs.total) { const d = run.total - run.vs.total; vsTile = tile('Proti ghostovi', fmtD(d) + ' s', '', `${esc(run.vs.name)} ${fmt(run.vs.total)}`, d < 0 ? 'var(--green)' : 'var(--yellow)'); }
-  else vsTile = tile('Start', MODES[mode], '', run.sim ? 'testovací jízda' : '');
+  const otherBest = bestOf(myRuns.filter(x => x.id !== run.id && (x.date || 0) < (run.date || Infinity)));
+  if (pb && pb.id === run.id) {
+    if (otherBest) { const d = run.total - otherBest.total; vsTile = tile('Proti rekordu', fmtD(d) + ' s', '', `předchozí rekord ${fmt(otherBest.total)}`, 'var(--green)'); }
+    else vsTile = tile('Proti rekordu', 'První', '', 'první tvoje jízda');
+  } else if (pb) {
+    const d = run.total - pb.total; vsTile = tile('Proti rekordu', fmtD(d) + ' s', '', `rekord ${fmt(pb.total)}`, 'var(--yellow)');
+  } else vsTile = tile('Proti rekordu', '–', '');
   $('#runTiles').innerHTML =
     tile('Průměrná rychlost', Math.round(avg), 'km/h') +
     tile('Nejvyšší rychlost', iMax >= 0 ? Math.round(v[iMax]) : '–', 'km/h', iMax >= 0 ? `na ${km(ds[iMax])} km` : '') +
@@ -559,6 +570,7 @@ function openRun(run, from) {
 
   const classes = run.sectors.map((s, k) => secCls(s, k, myPB, sb, true));
   $('#runMap').innerHTML = sectorMapSvg(r, 350, 190, run.sectors, classes);
+  $('#runMapBig').onclick = () => openSectorMap(run, r, classes, 'run');
   $('#runSecs').innerHTML = run.sectors.map((s, k) => `<div class="chip ${classes[k]}"><div class="lbl">S${k + 1}</div><div class="num">${fmt(s)}</div></div>`).join('');
   const saved = App.runs.some(x => x.id === run.id);
   $('#runDelete').hidden = !saved || run.driver !== App.me;
@@ -583,6 +595,37 @@ function raceThisRun() {
   App.cur = App.routes.find(x => x.id === run.routeId) || App.cur;
   startRace({ ghost: ghostFrom(run, run.driver === App.me ? 'Jízda ' + dateStr(run.date || Date.now()) : run.driver) });
 }
+
+/* ================= VELKÁ MAPA SEKTORŮ ================= */
+let smapFrom = 'run';
+async function openSectorMap(run, r, classes, from) {
+  smapFrom = from;
+  prep(r);
+  $('#smapTitle').textContent = r.name;
+  $('#smapSub').textContent = `${fmt(run.total)} · ${dateStr(run.date || Date.now())}`;
+  $('#smapSecs').innerHTML = run.sectors.map((s, k) => `<div class="chip ${classes[k]}"><div class="lbl">S${k + 1}</div><div class="num">${fmt(s)}</div></div>`).join('');
+  show('smap'); await initMap(); show('smap');
+  setRouteOnMap(null); clearRaceMarkers();
+  const feats = [0, 1, 2].map(k => {
+    const b0 = k ? r.sect[k - 1] : 0, b1 = r.sect[k];
+    const cs = [pointAt(r, b0)];
+    r.coords.forEach((c, i) => { if (r.cum[i] > b0 && r.cum[i] < b1) cs.push(c); });
+    cs.push(pointAt(r, b1));
+    return { type: 'Feature', properties: { color: COL[classes[k]] }, geometry: { type: 'LineString', coordinates: cs } };
+  });
+  map.getSource('sec').setData({ type: 'FeatureCollection', features: feats });
+  [[r.coords[0], 'pin'], [r.coords[r.coords.length - 1], 'pin finish']].forEach(([c, cls]) => {
+    const el = document.createElement('div'); el.className = cls;
+    secMarkers.push(new maplibregl.Marker({ element: el }).setLngLat(c).addTo(map));
+  });
+  run.sectors.forEach((s, k) => {
+    const el = document.createElement('div'); el.className = 'secpill ' + classes[k]; el.textContent = `S${k + 1} ${fmt(s)}`;
+    const mid = pointAt(r, ((k ? r.sect[k - 1] : 0) + r.sect[k]) / 2);
+    secMarkers.push(new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -10] }).setLngLat(mid).addTo(map));
+  });
+  map.fitBounds(boundsOf(r.coords), { padding: { top: 110, bottom: 140, left: 40, right: 40 }, pitch: 0, bearing: 0, duration: 0 });
+}
+function smapBack() { show(smapFrom === 'result' ? 'result' : 'run'); }
 
 /* ================= ZÁVOD ================= */
 let RS = null;
@@ -832,6 +875,7 @@ function showResult() {
     run.sectors.map((s, k) => `<div class="trow"><b>S${k + 1}</b><span class="num">${fmt(s)}</span><span class="g">${gs ? fmt(gs[k]) : '–'}</span><span><i class="pill ${classes[k]}">${gs ? fmtD(s - gs[k]) : fmt(s)}</i></span></div>`).join('');
 
   $('#resMap').innerHTML = sectorMapSvg(r, 350, 190, run.sectors, classes);
+  $('#resMapBig').onclick = () => openSectorMap(run, r, classes, 'result');
 
   const spark = $('#resSparkCard');
   spark.hidden = !cmp;
@@ -886,6 +930,7 @@ document.querySelectorAll('#detMode button').forEach(b => b.onclick = () => { Ap
 document.querySelectorAll('#detTab button').forEach(b => b.onclick = () => { App.tab = b.dataset.v; renderDetailBody(); });
 $('#detStart').onclick = () => startRace();
 $('#runBack').onclick = runBack;
+$('#smapBack').onclick = smapBack;
 $('#runRace').onclick = raceThisRun;
 $('#runDelete').onclick = deleteRun;
 $('#rGo').onclick = go;
