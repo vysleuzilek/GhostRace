@@ -105,6 +105,7 @@
     <button class="btn small" id="detRenameSave" style="flex:none;width:110px">Uložit</button>
   </div>
   <svg class="preview" id="detPreview" viewBox="0 0 360 150" role="img" aria-label="Tvar trasy"></svg>
+  <button class="btn ghost small" id="detSectors">Upravit sektory</button>
   <div class="seg" id="detMode"><button class="on" data-v="stand">Z místa</button><button data-v="fly">Letmý start</button></div>
   <div style="display:flex;flex-direction:column;gap:8px">
     <div class="seg small" id="detTab"><button class="on" data-v="board">Žebříček</button><button data-v="history">Moje jízdy</button></div>
@@ -153,6 +154,20 @@
   <div class="sheet"><div class="chips" id="smapSecs"></div></div>
 </section>
 
+<!-- úprava sektorů -->
+<section id="scr-sedit" class="ui" hidden>
+  <div class="newtop">
+    <button class="iconbtn" id="seBack" aria-label="Zpět"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <div class="hint" id="seHint">Ťukni na trasu, kde má končit sektor.</div>
+  </div>
+  <div class="sheet">
+    <div class="lbl">Rozdělit rovnoměrně na</div>
+    <div class="seg small" id="seCount"><button data-n="2">2</button><button data-n="3">3</button><button data-n="4">4</button><button data-n="5">5</button><button data-n="6">6</button></div>
+    <div class="selist" id="seList"></div>
+    <button class="btn small" id="seSave">Uložit sektory</button>
+  </div>
+</section>
+
 <!-- závod -->
 <section id="scr-race" class="ui" hidden>
   <div class="hudtop">
@@ -160,11 +175,7 @@
       <div class="card" style="flex:1"><div class="lbl">Čas</div><div class="num" id="rTime">0:00.0</div></div>
       <div id="rDelta" style="flex:none"><div class="lbl" id="rDeltaLbl">delta</div><div class="num" id="rDeltaVal">–</div></div>
     </div>
-    <div class="secs">
-      <div class="sec" id="rs0"><div class="lbl">S1</div><div class="num">–</div></div>
-      <div class="sec" id="rs1"><div class="lbl">S2</div><div class="num">–</div></div>
-      <div class="sec" id="rs2"><div class="lbl">S3</div><div class="num">–</div></div>
-    </div>
+    <div class="secs" id="rSecs"></div>
     <div class="card voice" id="rVoice" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C29BFF" stroke-width="2" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg><span id="rVoiceTxt"></span></div>
   </div>
   <div id="rCount" hidden></div>
