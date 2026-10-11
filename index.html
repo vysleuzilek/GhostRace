@@ -21,12 +21,12 @@
 
 <!-- jméno -->
 <section id="scr-name" class="panel" hidden>
-  <div style="margin-top:20vh;display:flex;flex-direction:column;gap:16px">
+  <div style="margin-top:18vh;display:flex;flex-direction:column;gap:16px">
     <p class="brand">GHOST RACE</p>
     <p style="margin:0;color:var(--muted);line-height:1.5">Jak se jmenuješ? Pod tímhle jménem budeš v žebříčku.</p>
     <label for="nameInput" class="lbl">Tvoje jméno</label>
     <input id="nameInput" class="field" maxlength="20" autocomplete="nickname" placeholder="Ondra">
-    <p id="nameErr" class="lbl" style="color:var(--orange)" hidden>Napiš jméno.</p>
+    <p id="nameErr" class="lbl" style="color:var(--yellow)" hidden>Napiš jméno.</p>
     <button class="btn" id="nameSave">Pokračovat</button>
   </div>
 </section>
@@ -43,11 +43,30 @@
     </button>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="badge" id="modeBadge"><i></i><span></span></span><span class="badge" id="meBadge"></span></div>
+  <div class="seg"><button class="on" data-view="list">Trasy</button><button data-view="map">Mapa</button></div>
+  <label class="search" for="search">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+    <input id="search" type="search" placeholder="Hledat trasu" autocomplete="off">
+  </label>
   <div class="routes" id="routeList"></div>
   <div class="spacer"></div>
   <button class="btn" id="btnNew">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Nová trasa
   </button>
+</section>
+
+<!-- mapa tras -->
+<section id="scr-rmap" class="ui" hidden>
+  <div class="newtop"><div class="seg glass" style="flex:1"><button data-view="list">Trasy</button><button class="on" data-view="map">Mapa</button></div></div>
+  <div class="sheet" id="rmapEmpty" hidden><p style="margin:0;line-height:1.5">Zatím nemáš žádnou trasu. Vytvoř ji v seznamu tras tlačítkem Nová trasa.</p></div>
+  <div class="sheet" id="rmapSheet" hidden>
+    <div><div style="font-weight:600;font-size:19px" id="rmapName"></div><div class="lbl" id="rmapMeta"></div></div>
+    <div class="times" id="rmapRec"></div>
+    <div class="row">
+      <button class="btn ghost small" id="rmapDetail">Detail</button>
+      <button class="btn small" id="rmapGo">Jet</button>
+    </div>
+  </div>
 </section>
 
 <!-- nová trasa -->
@@ -73,21 +92,23 @@
 <section id="scr-detail" class="panel" hidden>
   <div class="head">
     <button class="iconbtn" id="detBack" aria-label="Zpět"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
-    <div><h1 id="detName"></h1><div class="lbl" id="detMeta"></div></div>
+    <div style="min-width:0"><h1 id="detName"></h1><div class="lbl" id="detMeta"></div></div>
   </div>
   <div class="row" id="detTools">
     <button class="btn ghost small" id="detRename">Přejmenovat</button>
     <button class="btn ghost small" id="detDelete">Smazat trasu</button>
   </div>
   <div class="row" id="detRenameRow" hidden>
-    <label for="detRenameInput" class="sr" style="position:absolute;left:-9999px">Nový název</label>
+    <label for="detRenameInput" class="sr">Nový název</label>
     <input id="detRenameInput" class="field" maxlength="40">
     <button class="btn small" id="detRenameSave" style="flex:none;width:110px">Uložit</button>
   </div>
   <svg class="preview" id="detPreview" viewBox="0 0 360 150" role="img" aria-label="Tvar trasy"></svg>
+  <div class="seg" id="detMode"><button class="on" data-v="stand">Z místa</button><button data-v="fly">Letmý start</button></div>
   <div style="display:flex;flex-direction:column;gap:8px">
-    <div class="eyebrow">Žebříček</div>
+    <div class="seg small" id="detTab"><button class="on" data-v="board">Žebříček</button><button data-v="history">Moje jízdy</button></div>
     <div class="board" id="detBoard"></div>
+    <div class="board" id="detHistory" hidden></div>
   </div>
   <div style="display:flex;flex-direction:column;gap:8px">
     <div class="eyebrow">Jeď proti</div>
@@ -95,7 +116,28 @@
   </div>
   <label class="toggle" for="detSim"><input type="checkbox" id="detSim"><span>Testovací jízda<small>Auto pojede samo po trase, 3× rychleji. Na zkoušku doma.</small></span></label>
   <div class="spacer"></div>
-  <button class="btn" id="detStart"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>Na start</button>
+  <button class="btn" id="detStart"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg><span id="detStartTxt">Na start</span></button>
+</section>
+
+<!-- detail jízdy -->
+<section id="scr-run" class="panel" hidden>
+  <div class="head">
+    <button class="iconbtn" id="runBack" aria-label="Zpět"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <div style="min-width:0"><h1 id="runTitle"></h1><div class="lbl" id="runSub"></div></div>
+  </div>
+  <div class="tiles" id="runTiles"></div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div class="eyebrow">Čas na kilometr</div>
+    <div id="runSplits" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div class="eyebrow">Sektory</div>
+    <svg class="secmap" id="runMap" viewBox="0 0 350 190" role="img" aria-label="Trasa obarvená podle sektorů"></svg>
+    <div class="chips" id="runSecs"></div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" id="runRace">Jet proti téhle jízdě</button>
+  <button class="btn ghost small" id="runDelete">Smazat jízdu</button>
 </section>
 
 <!-- závod -->
@@ -127,24 +169,22 @@
 
 <!-- výsledek -->
 <section id="scr-result" class="panel" hidden>
-  <div class="hero">
-    <div class="pill" id="resBadge"></div>
-    <div class="num big" id="resTime">0:00.0</div>
-    <div class="lbl" style="font-size:15px" id="resSub"></div>
+  <div class="vs">
+    <div class="vsMe"><div class="vsl">TY</div><div class="num" id="vsMeTime">0:00.0</div><div class="vss" id="vsMeSub"></div></div>
+    <div class="vsGhost"><div class="vsl">GHOST</div><div class="num" id="vsGhostTime">–</div><div class="vss" id="vsGhostSub"></div></div>
+    <div class="vsBadge">VS</div>
   </div>
-  <div style="display:flex;flex-direction:column;gap:8px">
-    <div class="eyebrow">Sektory</div>
-    <div id="resSecs" style="display:flex;flex-direction:column;gap:8px"></div>
+  <div style="text-align:center">
+    <div class="num" id="resDelta" style="font-size:64px">–</div>
+    <div class="lbl" style="font-size:14px" id="resSub"></div>
   </div>
-  <div class="legend">
-    <div><i style="background:var(--purple)"></i>Fialová – nejlepší čas ze všech jezdců</div>
-    <div><i style="background:var(--green)"></i>Zelená – tvůj osobní rekord</div>
-    <div><i style="background:var(--orange)"></i>Oranžová – horší než tvůj rekord</div>
-  </div>
+  <div class="stable" id="resTable"></div>
+  <svg class="secmap" id="resMap" viewBox="0 0 350 190" role="img" aria-label="Trasa obarvená podle sektorů"></svg>
+  <div class="card2 sparkcard" id="resSparkCard"><span class="lbl" style="width:56px">Průběh delty</span><svg id="resSpark" viewBox="0 0 270 54" width="100%" height="54" aria-hidden="true"></svg></div>
   <div class="spacer"></div>
   <button class="btn" id="resSave">Uložit jízdu</button>
   <div class="row">
-    <button class="btn ghost" id="resBoard">Žebříček</button>
+    <button class="btn ghost" id="resDetail">Detail jízdy</button>
     <button class="btn ghost" id="resAgain">Jet znovu</button>
   </div>
 </section>
