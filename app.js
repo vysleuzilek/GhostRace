@@ -134,6 +134,19 @@ const Store = {
     if (this.cloud) { await this.db.collection(col).doc(doc.id).set(doc); return; }
     const a = this.lsGet(key); a.push(doc); this.lsSet(key, a);
   },
+  async update(col, key, id, patch) {
+    if (this.cloud) { await this.db.collection(col).doc(id).update(patch); return; }
+    this.lsSet(key, this.lsGet(key).map(x => x.id === id ? { ...x, ...patch } : x));
+  },
+  async removeRoute(id) {
+    if (this.cloud) {
+      const q = await this.db.collection('runs').where('routeId', '==', id).get();
+      await Promise.all(q.docs.map(d => d.ref.delete()));
+      await this.db.collection('routes').doc(id).delete(); return;
+    }
+    this.lsSet('gr_routes', this.lsGet('gr_routes').filter(x => x.id !== id));
+    this.lsSet('gr_runs', this.lsGet('gr_runs').filter(x => x.routeId !== id));
+  },
   routes() { return this.all('routes', 'gr_routes'); },
   runs() { return this.all('runs', 'gr_runs'); },
   saveRoute(r) { return this.put('routes', 'gr_routes', { id: r.id, name: r.name, c: r.coords.flat().map(v => +v.toFixed(6)), createdBy: r.createdBy, createdAt: r.createdAt }); },
@@ -196,10 +209,15 @@ function say(text, showBubble = true) {
   if (showBubble) { $('#rVoice').hidden = false; $('#rVoiceTxt').textContent = '„' + text + '“'; }
   try {
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text); u.lang = 'cs-CZ'; u.rate = 1.1;
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'cs-CZ'; u.rate = 0.92;
     const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('cs')); if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) { }
+}
+function timeSpeech(t) {
+  const m = Math.floor(t / 60), s = (t - m * 60).toFixed(1).replace('.', ',');
+  const mw = m === 1 ? 'minuta' : m >= 2 && m <= 4 ? 'minuty' : 'minut';
+  return (m ? m + ' ' + mw + ' ' : '') + s + ' sekundy';
 }
 function unlockVoice() { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { } }
 let wake = null;
@@ -223,6 +241,8 @@ async function loadData() {
   try { [App.routes, App.runs] = await Promise.all([Store.routes(), Store.runs()]); }
   catch (e) { console.warn(e); alertBox('Nepodařilo se načíst data. Zkontroluj internet nebo nastavení Firebase.'); }
   App.routes.forEach(prep);
+  // starší testovací jízdy měly v názvu „(test)“ – patří stejnému jezdci
+  App.runs.forEach(x => { if (x.driver && x.driver.endsWith(' (test)')) { x.driver = x.driver.slice(0, -7); x.sim = true; } });
   App.routes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 function alertBox(msg) { const el = $('#routeList'); el.insertAdjacentHTML('afterbegin', `<div class="empty" style="border-color:var(--orange)">${esc(msg)}</div>`); }
@@ -260,14 +280,15 @@ async function openNew() {
   show('new'); await initMap();
   Object.assign(NR, { step: 1, a: null, b: null, coords: null, busy: false });
   setRouteOnMap(null); clearRaceMarkers();
-  $('#newSheet').hidden = true; $('#newHint').textContent = 'Ťukni na mapu na START.';
+  $('#newSheet').hidden = true; $('#newHere').hidden = false; $('#newHereBtn').textContent = 'Start tam, kde stojím';
+  $('#newHint').textContent = 'Ťukni na mapu na START, nebo dej start tam, kde stojíš.';
   map.jumpTo({ pitch: 0, bearing: 0 });
   navigator.geolocation && navigator.geolocation.getCurrentPosition(p => map.flyTo({ center: [p.coords.longitude, p.coords.latitude], zoom: 14 }), () => map.flyTo({ center: HOME_CENTER, zoom: 13 }), { timeout: 6000 });
 }
 async function onMapClick(e) {
   if ($('#scr-new').hidden || NR.busy || NR.step === 0) return;
   const p = [e.lngLat.lng, e.lngLat.lat];
-  if (NR.step === 1) { NR.a = p; NR.step = 2; setRouteOnMap([p, p]); $('#newHint').textContent = 'Teď ťukni na CÍL.'; return; }
+  if (NR.step === 1) { setStart(p); return; }
   if (NR.step === 2) {
     NR.b = p; NR.busy = true; $('#newHint').textContent = 'Hledám trasu po silnici…';
     try {
@@ -275,6 +296,10 @@ async function onMapClick(e) {
       const j = await (await fetch(url)).json();
       if (!j.routes || !j.routes.length) throw new Error('no route');
       NR.coords = j.routes[0].geometry.coordinates;
+      if (NR.coords.length < 2 || j.routes[0].distance < 100) {
+        $('#newHint').textContent = 'Start a cíl jsou moc blízko. Ťukni znovu na CÍL dál po silnici.';
+        NR.step = 2; NR.busy = false; setRouteOnMap([NR.a, NR.a]); return;
+      }
       setRouteOnMap(NR.coords); fitCoords(NR.coords, 90);
       const r = prep({ coords: NR.coords });
       $('#newHint').textContent = `Trasa ${km(r.length)} km. Pojmenuj ji a ulož.`;
@@ -285,6 +310,22 @@ async function onMapClick(e) {
     }
     NR.busy = false;
   }
+}
+function setStart(p) {
+  NR.a = p; NR.step = 2; setRouteOnMap([p, p]);
+  $('#newHere').hidden = true;
+  $('#newHint').textContent = 'Teď ťukni na CÍL.';
+}
+function startHere() {
+  const b = $('#newHereBtn');
+  if (!('geolocation' in navigator)) { b.textContent = 'Tohle zařízení nemá GPS'; return; }
+  b.textContent = 'Zjišťuju polohu…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    const p = [pos.coords.longitude, pos.coords.latitude];
+    setStart(p); map.flyTo({ center: p, zoom: 15 });
+  }, err => {
+    b.textContent = err.code === 1 ? 'Povol polohu pro Safari a zkus znovu' : 'Polohu se nepodařilo zjistit, zkus znovu';
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 async function saveNew() {
   if (!NR.coords) return;
@@ -304,6 +345,8 @@ function openDetail(id) {
   $('#detName').textContent = r.name;
   $('#detMeta').textContent = `${km(r.length)} km · 3 sektory${r.createdBy ? ' · vytvořil ' + r.createdBy : ''}`;
   $('#detPreview').innerHTML = routeSvg(r, 360, 150);
+  $('#detRenameRow').hidden = true; $('#detTools').hidden = false;
+  $('#detDelete').textContent = 'Smazat trasu'; delArmed = false;
 
   // žebříček: nejlepší jízda každého jezdce
   const byDriver = {};
@@ -313,7 +356,7 @@ function openDetail(id) {
   const board = $('#detBoard');
   if (!rows.length) board.innerHTML = `<div class="empty">Na trase ještě nikdo nejel. První jízda nastaví ghosta.</div>`;
   else board.innerHTML = `<div class="brow headrow"><span></span><span>Jezdec</span><span style="text-align:center">S1</span><span style="text-align:center">S2</span><span style="text-align:center">S3</span><span style="text-align:right">Čas</span></div>` +
-    rows.map((x, i) => `<div class="brow${x.driver === App.me ? ' me' : ''}"><span style="text-align:center;font-weight:600">${i + 1}</span><span class="n">${esc(x.driver)}</span>${x.sectors.map((s, k) => `<span class="c${s <= sb[k] ? ' purple' : ''}">${fmtS(s)}</span>`).join('')}<span class="t">${fmt(x.total)}</span></div>`).join('');
+    rows.map((x, i) => `<div class="brow${x.driver === App.me ? ' me' : ''}"><span style="text-align:center;font-weight:600">${i + 1}</span><span class="n">${esc(x.driver)}${x.sim ? ' <span class="lbl">test</span>' : ''}</span>${x.sectors.map((s, k) => `<span class="c${s <= sb[k] ? ' purple' : ''}">${fmtS(s)}</span>`).join('')}<span class="t">${fmt(x.total)}</span></div>`).join('');
 
   // výběr ghosta
   const opts = [];
@@ -325,6 +368,27 @@ function openDetail(id) {
   opts.push({ v: 'none', t: 'Bez ghosta', s: 'Jen změřit čas' });
   $('#detGhosts').innerHTML = opts.map((o, i) => `<label class="opt"><input type="radio" name="ghost" value="${o.v}" ${i === 0 ? 'checked' : ''}><span class="tx"><b>${esc(o.t)}</b><span>${o.s}</span></span>${o.time ? `<span class="num"${o.purple ? ' style="color:var(--purple-soft)"' : ''}>${fmt(o.time)}</span>` : ''}</label>`).join('');
   show('detail');
+}
+let delArmed = false;
+function renameStart() {
+  $('#detTools').hidden = true; $('#detRenameRow').hidden = false;
+  const i = $('#detRenameInput'); i.value = App.cur.name; i.focus();
+}
+async function renameSave() {
+  const n = $('#detRenameInput').value.trim();
+  if (!n) { $('#detRenameInput').focus(); return; }
+  try { await Store.update('routes', 'gr_routes', App.cur.id, { name: n }); App.cur.name = n; } catch (e) { }
+  openDetail(App.cur.id);
+}
+async function deleteRoute() {
+  const b = $('#detDelete');
+  if (!delArmed) {
+    delArmed = true; b.textContent = 'Opravdu? Ťukni znovu';
+    setTimeout(() => { delArmed = false; b.textContent = 'Smazat trasu'; }, 3000); return;
+  }
+  b.textContent = 'Mažu…';
+  try { await Store.removeRoute(App.cur.id); } catch (e) { b.textContent = 'Smazání selhalo'; return; }
+  goHome();
 }
 function pickGhost() {
   const r = App.cur, runs = runsOf(r.id), v = (document.querySelector('input[name=ghost]:checked') || {}).value;
@@ -361,7 +425,7 @@ async function startRace() {
   $('#rVoice').hidden = true; $('#rGap').hidden = true; $('#rGo').hidden = false; $('#rCount').hidden = true;
   $('#rStopTxt').textContent = 'Konec'; $('#rLeft').textContent = km(r.length); $('#rSpd').textContent = '0';
   $('#rMsg').hidden = false; $('#rMsg').textContent = sim ? 'Testovací jízda. Dej Start.' : 'Čekám na GPS…';
-  map.jumpTo({ center: r.coords[0], zoom: 17, pitch: 62, bearing: RS.camH });
+  map.jumpTo({ center: r.coords[0], zoom: 18.3, pitch: 64, bearing: RS.camH });
   startGPS();
   requestAnimationFrame(frame);
 }
@@ -442,8 +506,8 @@ function sectorDone(tc) {
   const cls = st < RS.allBest[k] ? 'purple' : st < RS.myPB[k] ? 'green' : 'orange';
   const e = $('#rs' + k); e.className = 'sec ' + cls; e.querySelector('.num').textContent = fmtS(st);
   const names = ['jedna', 'dva', 'tři'];
-  const msg = { purple: 'fialová, nejrychlejší ze všech', green: 'zelená, osobní rekord', orange: 'oranžová, plus ' + cz(st - RS.myPB[k]) };
-  if (RS.sec < 3) say('Sektor ' + names[k] + ', ' + msg[cls]);
+  const msg = { purple: 'fialová', green: 'zelená', orange: 'oranžová, plus ' + cz(st - RS.myPB[k]) };
+  if (RS.sec < 3) say('Sektor ' + names[k] + '. ' + msg[cls]);
   else { RS.phase = 'done'; RS.total = tc; }
 }
 
@@ -485,7 +549,7 @@ function frame(now) {
   }
 
   RS.camH = (RS.camH + angDiff(RS.camH, carH) * Math.min(1, dtReal * 2.5) + 360) % 360;
-  map.jumpTo({ center: moveBy(carPos, RS.camH, 45), bearing: RS.camH, pitch: 62, zoom: 17 });
+  map.jumpTo({ center: moveBy(carPos, RS.camH, 22), bearing: RS.camH, pitch: 64, zoom: 18.3 });
   requestAnimationFrame(frame);
 }
 
@@ -515,12 +579,11 @@ function saveDraft(total) {
   stopGPS();
   const r = RS.route;
   RS.run = {
-    id: uid(), routeId: r.id, driver: App.me + (RS.sim ? ' (test)' : ''), total, sectors: RS.sectors.slice(0, 3),
+    id: uid(), routeId: r.id, driver: App.me, total, sectors: RS.sectors.slice(0, 3),
     s: RS.samples.flatMap(([t, d]) => [+t.toFixed(2), +d.toFixed(1)]), date: Date.now(), sim: RS.sim
   };
   const dg = RS.ghost ? total - RS.ghost.total : null;
-  const pbMsg = !isFinite(RS.allBestTotal) || RS.allBestTotal == null || total < RS.allBestTotal ? 'nejrychlejší na trase' : (RS.myBestTotal == null || total < RS.myBestTotal) ? 'nový osobní rekord' : null;
-  say('Cíl. ' + fmt(total).replace(':', ' minut ').replace('.', ',') + (dg != null ? (dg < 0 ? ', o ' + cz(-dg) + ' rychleji než ghost' : ', o ' + cz(dg) + ' pomaleji než ghost') : '') + (pbMsg ? '. ' + pbMsg + '!' : ''), false);
+  say('Cíl. ' + timeSpeech(total), false);
   setTimeout(() => showResult(dg), 1400);
 }
 function showResult(dg) {
@@ -568,6 +631,11 @@ $('#newBack').onclick = goHome;
 $('#newReset').onclick = openNew;
 $('#newSave').onclick = saveNew;
 $('#detBack').onclick = goHome;
+$('#detRename').onclick = renameStart;
+$('#detRenameSave').onclick = renameSave;
+$('#detRenameInput').onkeydown = e => { if (e.key === 'Enter') renameSave(); };
+$('#detDelete').onclick = deleteRoute;
+$('#newHereBtn').onclick = startHere;
 $('#detStart').onclick = startRace;
 $('#rGo').onclick = go;
 $('#rStop').onclick = abortRace;
