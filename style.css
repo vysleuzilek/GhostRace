@@ -119,6 +119,18 @@ button{cursor:pointer}
 .mapwrap{position:relative}
 .expand{position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:10px;border:0;background:rgba(14,16,19,.85);color:var(--fg);font-weight:600;font-size:13px}
 .secpill{font-family:var(--body);font-weight:600;font-size:13px;border-radius:8px;padding:4px 9px;white-space:nowrap;box-shadow:0 1px 0 rgba(0,0,0,.4)}
+.selist{display:flex;flex-wrap:wrap;gap:6px}
+.sepill{font-size:13px;font-weight:600;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 9px}
+.brow2{display:flex;flex-direction:column;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:100%;text-align:left}
+.brow2.me{border-color:var(--ghost)}
+.brow2 .top{display:flex;align-items:center;gap:10px}
+.brow2 .top .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brow2 .t{font-family:var(--display);font-weight:700;font-size:20px}
+.brow2 .mini,.hrow .mini{display:flex;flex-wrap:wrap;gap:4px}
+.brow2 .mini i{font-style:normal;font-size:12px;font-weight:600;border-radius:5px;padding:3px 6px}
+.plain{background:var(--line);color:var(--fg)}
+#detSectors.muted{color:var(--muted)}
+.divlbl{font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.5px;color:var(--bg);background:var(--fg);border-radius:6px;padding:2px 6px;white-space:nowrap}
 #topshade{position:fixed;top:0;left:0;right:0;height:var(--top);background:var(--bg);z-index:30;pointer-events:none}
 
 /* nová trasa / mapa tras */
